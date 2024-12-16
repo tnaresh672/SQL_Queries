@@ -1,0 +1,109 @@
+-- Query to find all the databases size and max postdate.(Run it in POCONFIG (DEV/QA/SAT001/OCR))
+--===============================================================================================
+WITH AvialableDBList AS
+(
+  SELECT
+      datname as databasename,
+      dbsize,
+      CASE 
+        WHEN dbsize ILIKE '%MB' THEN 2  
+        WHEN dbsize ILIKE '%KB' THEN 3 
+        ELSE 1 
+      END AS sortorder
+  FROM
+  (
+    SELECT 
+        datname,
+        pg_size_pretty(pg_database_size(datname)) AS dbsize
+    FROM pg_database
+    WHERE DATNAME NOT IN ('postgres', 'template0', 'template1', 'yieldstar', 'publication', 'repmgr', 
+                          'rmsbridge', 'usageanalysis', 'poconfig', 'polog', 'amenitycategorization',
+                          'apistaging_prod','shell','expectedexposureservice', 'rmnotification', 'datafix', 
+                          'modernmessaging', 'aiservices')
+  )SQ
+),
+FinalResult AS
+(
+  SELECT 
+      ADL.*,
+      D.servername,
+      FORMAT('dbname = %s host = %s port = %s user = %s password = %s',
+                      d.physicaldatabasename, d.servername , d.port, d.username, d.password
+                     ) TargetDBDetails
+  FROM AvialableDBList ADL
+  LEFT JOIN database D
+    ON ADL.databasename = D.physicaldatabasename 
+  WHERE D.servername IS NOT NULL
+)
+SELECT
+    FR.databasename,
+    FR.dbsize,
+    FR.servername,
+    X.postdate
+FROM FinalResult FR
+CROSS JOIN DBLINK(FR.TargetDBDetails,
+                  'SELECT 
+                       CURRENT_DATABASE() AS databasename,
+                       MAX(postdate) AS postdate
+                    FROM propertyparameter') AS X(databasename TEXT,postdate DATE)
+ORDER BY databasename;
+
+
+-- Query to find all the databases size and max postdate.(Run it in POCONFIG (SAT002))
+--===============================================================================================
+WITH AvialableDBList AS
+(
+  SELECT
+      datname as databasename,
+      dbsize,
+      CASE 
+        WHEN dbsize ILIKE '%MB' THEN 2  
+        WHEN dbsize ILIKE '%KB' THEN 3 
+        ELSE 1 
+      END AS sortorder
+  FROM
+  (
+    SELECT 
+        datname,
+        pg_size_pretty(pg_database_size(datname)) AS dbsize
+    FROM pg_database
+    WHERE DATNAME NOT IN ('postgres', 'template0', 'template1', 'yieldstar', 'publication', 'repmgr', 
+                          'rmsbridge', 'usageanalysis', 'poconfig', 'polog', 'amenitycategorization',
+                          'apistaging_prod','shell','expectedexposureservice', 'rmnotification', 'datafix', 
+                          'modernmessaging', 'aiservices')
+  )SQ
+),
+DatabaseRecords AS
+(
+  SELECT
+        X.*
+    FROM dblink('dbname = poconfig host = sat001dbpgr.ypo port = 5432 user = yieldstar password = Rp^hUpG4#@VLa4*y',
+                'SELECT physicaldatabasename,servername
+                 from database
+                 where databasetype = ''CLIENT'''
+               ) AS x(physicaldatabasename TEXT,servername TEXT);
+),
+FinalResult AS
+(
+  SELECT 
+      ADL.*,
+      D.*
+  FROM AvialableDBList ADL
+  LEFT JOIN DatabaseRecords D
+    ON ADL.databasename = D.physicaldatabasename 
+  WHERE D.servername IS NOT NULL
+)
+SELECT
+    FR.databasename,
+    FR.dbsize,
+    FR.servername,
+    X.postdate
+FROM FinalResult FR
+CROSS JOIN DBLINK(FORMAT('dbname = %s host = sat002dbpgr.ypo port = 5432 user = yieldstar password = Rp^hUpG4#@VLa4*y',
+                      FR.physicaldatabasename
+                     ) TargetDBDetails,
+                  'SELECT 
+                       CURRENT_DATABASE() AS databasename,
+                       MAX(postdate) AS postdate
+                    FROM propertyparameter') AS X(databasename TEXT,postdate DATE)
+ORDER BY databasename;
